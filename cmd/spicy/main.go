@@ -88,7 +88,6 @@ Uname Is passed to cpp(1) for use during its invocation.
 */
 
 func main() {
-	fmt.Println("Running Spicy!")
 	flag.VarP(&defineFlags, "define", "D", defines_text)
 	flag.VarP(&includeFlags, "include", "I", includes_text)
 	flag.VarP(&undefineFlags, "undefine", "U", undefine_text)
@@ -222,7 +221,7 @@ func ParseHeader(r io.Reader, bo binary.ByteOrder) (n64rom.Header, error) {
 
 	// Check the length of the binary data and fill the header struct accordingly
 	headerLength := len(binaryData)
-	fmt.Println("HeaderLenght Binary", headerLength)
+	fmt.Println("HeaderLength Binary", headerLength)
 	if headerLength > 0 {
 		header.X1 = binaryData[0]
 	}
