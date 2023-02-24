@@ -2,9 +2,10 @@ package spicy
 
 import (
 	"bytes"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"text/template"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var compileArgs = []string{"-march=vr4300", "-mtune=vr4300", "-mgp32", "-mfp32", "-non_shared"}

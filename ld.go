@@ -13,7 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var ldArgs = []string{"-G 0", "-nostartfiles", "-nodefaultlibs", "-nostdinc", "-M"}
+var ldArgs = []string{"-G 0", "-z nodefaultlib", "-M"}
 
 func createLdScript(w *Wave) (io.Reader, error) {
 	t := `

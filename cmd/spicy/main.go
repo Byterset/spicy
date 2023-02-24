@@ -1,12 +1,19 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
+
+	"github.com/byterset/spicy"
 	flag "github.com/ogier/pflag"
 	log "github.com/sirupsen/logrus"
 	"github.com/trhodeos/n64rom"
-	"github.com/trhodeos/spicy"
-	"io/ioutil"
-	"os"
 )
 
 const (
@@ -19,7 +26,7 @@ const (
 	romsize_text                           = "Rom size (MBits)"
 	filldata_text                          = "filldata byte"
 	bootstrap_filename_text                = "Bootstrap file (not currently used)"
-	header_filename_text                   = "Header file (not currently used)"
+	header_filename_text                   = "Header file"
 	pif_bootstrap_filename_text            = "Pif bootstrap file (not currently used)"
 	rom_image_file_text                    = "Rom image filename"
 	spec_file_text                         = "Spec file to use for making the image"
@@ -51,7 +58,7 @@ var (
 	romsize_mbits                     = flag.IntP("romsize", "s", -1, romsize_text)
 	filldata                          = flag.IntP("filldata_byte", "f", 0x0, filldata_text)
 	bootstrap_filename                = flag.StringP("bootstrap_file", "b", "Boot", bootstrap_filename_text)
-	header_filename                   = flag.StringP("romheader_file", "h", "romheader", header_filename_text)
+	header_filename                   = flag.StringP("romheader_file", "h", "", header_filename_text)
 	pif_bootstrap_filename            = flag.StringP("pif2boot_file", "p", "pif2Boot", pif_bootstrap_filename_text)
 	rom_image_file                    = flag.StringP("rom_name", "r", "rom.n64", rom_image_file_text)
 	elf_file                          = flag.StringP("rom_elf_name", "e", "rom.out", rom_image_file_text)
@@ -81,6 +88,7 @@ Uname Is passed to cpp(1) for use during its invocation.
 */
 
 func main() {
+	fmt.Println("Running Spicy!")
 	flag.VarP(&defineFlags, "define", "D", defines_text)
 	flag.VarP(&includeFlags, "include", "I", includes_text)
 	flag.VarP(&undefineFlags, "undefine", "U", undefine_text)
@@ -101,7 +109,7 @@ func main() {
 	as := spicy.NewRunner(*as_command)
 	objcopy := spicy.NewRunner(*objcopy_command)
 	preprocessed, err := spicy.PreprocessSpec(f, gcc, includeFlags, defineFlags, undefineFlags)
-	
+
 	if err != nil {
 		panic(err)
 	}
@@ -115,6 +123,28 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	if *header_filename != "" {
+		fmt.Println("using custom header:" + *header_filename)
+		file, err := os.Open(*header_filename)
+		if err != nil {
+			fmt.Println(err)
+		}
+		defer file.Close()
+
+		// Create a new reader
+		reader := bufio.NewReader(file)
+		header, err := ParseHeader(reader, binary.BigEndian)
+		if err != nil {
+			fmt.Println("Error parsing romheader file!")
+			fmt.Println(err)
+		}
+		rom, err = n64rom.NewRomFileWithHeader(byte(*filldata), header)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
 	for _, w := range spec.Waves {
 		for _, seg := range w.RawSegments {
 			for _, include := range seg.Includes {
@@ -167,4 +197,104 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func ParseHeader(r io.Reader, bo binary.ByteOrder) (n64rom.Header, error) {
+
+	header := n64rom.Header{}
+
+	// Create a scanner to read the file line by line
+	scanner := bufio.NewScanner(r)
+	scanner.Split(bufio.ScanLines)
+
+	// Concatenate lines into a single byte slice
+	var hexData []byte
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		hexData = append(hexData, bytes.Trim(line, "\n")...)
+	}
+
+	// Convert hex data to binary data
+	binaryData, err := hex.DecodeString(string(hexData))
+	if err != nil {
+		panic(err)
+	}
+
+	// Check the length of the binary data and fill the header struct accordingly
+	headerLength := len(binaryData)
+	fmt.Println("HeaderLenght Binary", headerLength)
+	if headerLength > 0 {
+		header.X1 = binaryData[0]
+	}
+	if headerLength > 1 {
+		header.X2 = binaryData[1]
+	}
+	if headerLength > 2 {
+		header.X3 = binaryData[2]
+	}
+	if headerLength > 3 {
+		header.X4 = binaryData[3]
+	}
+	if headerLength > 4 {
+		header.ClockRate = binary.BigEndian.Uint32(binaryData[4:8])
+	}
+	if headerLength > 8 {
+		header.BootAddress = binary.BigEndian.Uint32(binaryData[8:12])
+	}
+	if headerLength > 12 {
+		header.Release = binary.BigEndian.Uint32(binaryData[12:16])
+	}
+	if headerLength > 16 {
+		header.Crc1 = binary.BigEndian.Uint32(binaryData[16:20])
+	}
+	if headerLength > 20 {
+		header.Crc2 = binary.BigEndian.Uint32(binaryData[20:24])
+	}
+	if headerLength > 24 {
+		header.Unknown0 = binary.BigEndian.Uint64(binaryData[24:32])
+	}
+	if headerLength > 32 {
+		copy(header.Name[:], binaryData[32:52])
+	}
+	if headerLength > 52 {
+		header.Unknown2 = binary.BigEndian.Uint32(binaryData[52:56])
+	}
+	if headerLength > 56 {
+		header.RomType = binaryData[56]
+	}
+	if headerLength > 57 {
+		header.GameId = binary.BigEndian.Uint16(binaryData[57:59])
+	}
+	if headerLength > 59 {
+		header.RegionLanguage = binaryData[59]
+	}
+	if headerLength > 60 {
+		header.CartId = binary.BigEndian.Uint16(binaryData[60:62])
+	}
+	if headerLength > 62 {
+		header.CountryCode = binaryData[62]
+	}
+	if headerLength > 63 {
+		header.Version = binaryData[63]
+	}
+	fmt.Printf("X1: %d\n", header.X1)
+	fmt.Printf("X2: %d\n", header.X2)
+	fmt.Printf("X3: %d\n", header.X3)
+	fmt.Printf("X4: %d\n", header.X4)
+	fmt.Printf("ClockRate: %d\n", header.ClockRate)
+	fmt.Printf("BootAddress: %d\n", header.BootAddress)
+	fmt.Printf("Release: %d\n", header.Release)
+	fmt.Printf("Crc1: %d\n", header.Crc1)
+	fmt.Printf("Crc2: %d\n", header.Crc2)
+	fmt.Printf("Unknown0: %d\n", header.Unknown0)
+	fmt.Printf("Name: %s\n", header.Name)
+	fmt.Printf("Unknown2: %d\n", header.Unknown2)
+	fmt.Printf("RomType: %d\n", header.RomType)
+	fmt.Printf("GameId: %d\n", header.GameId)
+	fmt.Printf("RegionLanguage: %d\n", header.RegionLanguage)
+	fmt.Printf("CartId: %d\n", header.CartId)
+	fmt.Printf("CountryCode: %d\n", header.CountryCode)
+	fmt.Printf("Version: %d\n", header.Version)
+
+	return header, err
 }

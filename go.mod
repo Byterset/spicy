@@ -1,4 +1,4 @@
-module github.com/trhodeos/spicy
+module github.com/byterset/spicy
 
 go 1.19
 
